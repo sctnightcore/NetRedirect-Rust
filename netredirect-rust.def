@@ -1,0 +1,3 @@
+LIBRARY xkore
+EXPORTS
+    DllMain

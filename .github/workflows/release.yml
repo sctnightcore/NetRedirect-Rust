@@ -1,0 +1,52 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        target: i686-pc-windows-msvc
+    
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Setup Developer Command Prompt
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x86
+
+    - name: Build
+      run: |
+        cargo build --release --target i686-pc-windows-msvc
+        
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+        
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./target/i686-pc-windows-msvc/release/netredirect.dll
+        asset_name: netredirect.dll
+        asset_content_type: application/x-msdownload
