@@ -1,11 +1,11 @@
-use std::net::{TcpStream, SocketAddr};
+use std::net::TcpStream;
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 use std::thread;
 use std::sync::{Arc, Mutex};
 use detours_sys as detours;
-use winapi::shared::ws2def::*;
 use winapi::um::winsock2::*;
+use lazy_static::lazy_static;
 
 const XKORE_SERVER_PORT: u16 = 2350;
 const BUF_SIZE: usize = 4096;
@@ -190,7 +190,9 @@ pub extern "system" fn DllMain(_hinst: *mut u8, reason: u32, _: *mut u8) -> i32 
                 
                 // Set up hooks
                 detours::DetourTransactionBegin();
-                detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread());
+                detours::DetourUpdateThread(std::mem::transmute(
+                    winapi::um::processthreadsapi::GetCurrentThread()
+                ));
                 
                 detours::DetourAttach(&mut (ORIGINAL_RECV.unwrap() as *mut _), 
                                     hooked_recv as *mut _);
@@ -212,7 +214,9 @@ pub extern "system" fn DllMain(_hinst: *mut u8, reason: u32, _: *mut u8) -> i32 
             unsafe {
                 // Remove hooks
                 detours::DetourTransactionBegin();
-                detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread());
+                detours::DetourUpdateThread(std::mem::transmute(
+                    winapi::um::processthreadsapi::GetCurrentThread()
+                ));
                 
                 if let Some(orig_recv) = ORIGINAL_RECV {
                     detours::DetourDetach(&mut (orig_recv as *mut _), 
