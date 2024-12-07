@@ -127,50 +127,60 @@ fn kore_connection_main(keep_running: Arc<Mutex<bool>>) {
             }
         }
         
-        // Handle data
-        let mut state = NETWORK_STATE.lock().unwrap();
-        let mut client = match state.kore_client {
-            Some(ref mut c) => c,
-            None => {
-                drop(state);
-                thread::sleep(Duration::from_millis(SLEEP_TIME));
-                continue;
+        // Handle data - scope each operation separately to avoid multiple borrows
+        let mut should_ping = false;
+        let mut data_to_send = None;
+        
+        // First, check client existence and read data
+        let read_result = {
+            let mut state = NETWORK_STATE.lock().unwrap();
+            match &mut state.kore_client {
+                Some(client) => client.read(&mut buf),
+                None => {
+                    thread::sleep(Duration::from_millis(SLEEP_TIME));
+                    continue;
+                }
             }
         };
 
-        // Read data
-        if let Ok(n) = client.read(&mut buf) {
+        // Process read data if successful
+        if let Ok(n) = read_result {
             if n > 0 {
+                let mut state = NETWORK_STATE.lock().unwrap();
                 process_packet(&buf[..n], &mut state);
             }
         }
 
-        // Prepare data for sending
-        let data_to_send: Option<Vec<u8>> = if !state.xkore_send_buf.is_empty() {
-            Some(state.xkore_send_buf.clone())
-        } else {
-            None
-        };
+        // Prepare data for sending in a separate scope
+        {
+            let state = NETWORK_STATE.lock().unwrap();
+            if !state.xkore_send_buf.is_empty() {
+                data_to_send = Some(state.xkore_send_buf.clone());
+            }
+            should_ping = state.kore_alive && last_ping.elapsed() > Duration::from_millis(PING_INTERVAL);
+        }
 
-        // Prepare ping if needed
-        let should_ping = state.kore_alive && last_ping.elapsed() > Duration::from_millis(PING_INTERVAL);
-        
-        // Send data if prepared
+        // Send prepared data
         if let Some(data) = data_to_send {
-            if client.write_all(&data).is_ok() {
-                state.xkore_send_buf.clear();
+            let mut state = NETWORK_STATE.lock().unwrap();
+            if let Some(client) = &mut state.kore_client {
+                if client.write_all(&data).is_ok() {
+                    state.xkore_send_buf.clear();
+                }
             }
         }
 
-        // Send ping if needed
+        // Handle ping in a separate scope
         if should_ping {
-            let ping = [b'K', 0, 0];
-            if client.write_all(&ping).is_ok() {
-                last_ping = Instant::now();
+            let mut state = NETWORK_STATE.lock().unwrap();
+            if let Some(client) = &mut state.kore_client {
+                let ping = [b'K', 0, 0];
+                if client.write_all(&ping).is_ok() {
+                    last_ping = Instant::now();
+                }
             }
         }
 
-        drop(state);
         thread::sleep(Duration::from_millis(SLEEP_TIME));
     }
 }
