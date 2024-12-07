@@ -114,49 +114,62 @@ fn kore_connection_main(keep_running: Arc<Mutex<bool>>) {
     let mut last_connect_attempt = Instant::now();
     
     while *keep_running.lock().unwrap() {
+        // Handle connection
+        {
+            let mut state = NETWORK_STATE.lock().unwrap();
+            if !state.kore_alive || last_connect_attempt.elapsed() > Duration::from_millis(RECONNECT_INTERVAL) {
+                if let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{}", XKORE_SERVER_PORT)) {
+                    state.kore_client = Some(stream);
+                    state.kore_alive = true;
+                    println!("Connected to X-Kore server");
+                }
+                last_connect_attempt = Instant::now();
+            }
+        }
+        
+        // Handle data
         let mut state = NETWORK_STATE.lock().unwrap();
-        
-        // Connection management
-        if !state.kore_alive || last_connect_attempt.elapsed() > Duration::from_millis(RECONNECT_INTERVAL) {
-            if let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{}", XKORE_SERVER_PORT)) {
-                state.kore_client = Some(stream);
-                state.kore_alive = true;
-                println!("Connected to X-Kore server");
+        let mut client = match state.kore_client {
+            Some(ref mut c) => c,
+            None => {
+                drop(state);
+                thread::sleep(Duration::from_millis(SLEEP_TIME));
+                continue;
             }
-            last_connect_attempt = Instant::now();
-        }
-        
-        // Handle received data
-        if let Some(ref mut client) = state.kore_client {
-            if let Ok(n) = client.read(&mut buf) {
-                if n > 0 {
-                    process_packet(&buf[..n], &mut state);
-                }
+        };
+
+        // Read data
+        if let Ok(n) = client.read(&mut buf) {
+            if n > 0 {
+                process_packet(&buf[..n], &mut state);
             }
         }
-        
-        // Send pending data
-        let should_send = !state.xkore_send_buf.is_empty();
-        if should_send {
-            if let Some(ref mut client) = state.kore_client {
-                let data_to_send = state.xkore_send_buf.clone();
-                if client.write_all(&data_to_send).is_ok() {
-                    state.xkore_send_buf.clear();
-                }
-            }
-        }
-        
-        // Send keep-alive
+
+        // Prepare data for sending
+        let data_to_send: Option<Vec<u8>> = if !state.xkore_send_buf.is_empty() {
+            Some(state.xkore_send_buf.clone())
+        } else {
+            None
+        };
+
+        // Prepare ping if needed
         let should_ping = state.kore_alive && last_ping.elapsed() > Duration::from_millis(PING_INTERVAL);
-        if should_ping {
-            if let Some(ref mut client) = state.kore_client {
-                let ping = [b'K', 0, 0];
-                if client.write_all(&ping).is_ok() {
-                    last_ping = Instant::now();
-                }
+        
+        // Send data if prepared
+        if let Some(data) = data_to_send {
+            if client.write_all(&data).is_ok() {
+                state.xkore_send_buf.clear();
             }
         }
-        
+
+        // Send ping if needed
+        if should_ping {
+            let ping = [b'K', 0, 0];
+            if client.write_all(&ping).is_ok() {
+                last_ping = Instant::now();
+            }
+        }
+
         drop(state);
         thread::sleep(Duration::from_millis(SLEEP_TIME));
     }
