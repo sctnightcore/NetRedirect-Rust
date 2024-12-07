@@ -138,7 +138,9 @@ fn kore_connection_main(keep_running: Arc<Mutex<bool>>) {
         // Send pending data
         if !state.xkore_send_buf.is_empty() {
             if let Some(client) = &mut state.kore_client {
-                if let Ok(_) = client.write_all(&state.xkore_send_buf) {
+                // Clone the buffer first
+                let buffer_to_send = state.xkore_send_buf.clone();
+                if client.write_all(&buffer_to_send).is_ok() {
                     state.xkore_send_buf.clear();
                 }
             }
