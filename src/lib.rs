@@ -128,7 +128,7 @@ fn kore_connection_main(keep_running: Arc<Mutex<bool>>) {
         }
         
         // Handle data - scope each operation separately to avoid multiple borrows
-        let mut should_ping = false;
+        let ping_needed;  // Changed from should_ping to avoid unused assignment
         let mut data_to_send = None;
         
         // First, check client existence and read data
@@ -157,7 +157,7 @@ fn kore_connection_main(keep_running: Arc<Mutex<bool>>) {
             if !state.xkore_send_buf.is_empty() {
                 data_to_send = Some(state.xkore_send_buf.clone());
             }
-            should_ping = state.kore_alive && last_ping.elapsed() > Duration::from_millis(PING_INTERVAL);
+            ping_needed = state.kore_alive && last_ping.elapsed() > Duration::from_millis(PING_INTERVAL);
         }
 
         // Send prepared data
@@ -171,7 +171,7 @@ fn kore_connection_main(keep_running: Arc<Mutex<bool>>) {
         }
 
         // Handle ping in a separate scope
-        if should_ping {
+        if ping_needed {
             let mut state = NETWORK_STATE.lock().unwrap();
             if let Some(client) = &mut state.kore_client {
                 let ping = [b'K', 0, 0];

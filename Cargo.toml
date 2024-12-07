@@ -4,20 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "netredirect"  # แก้ชื่อให้ไม่มีเครื่องหมายขีด
 crate-type = ["cdylib"]
 
 [dependencies]
 detours-sys = "0.1.1"
-winapi = { version = "0.3", features = ["winsock2", "ws2def"] }
-lazy_static = "1.4.0"
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
+winapi = { version = "0.3", features = ["winsock2", "processthreadsapi"] }
+lazy_static = "1.4"
 
 [build-dependencies]
 cc = "1.0"
