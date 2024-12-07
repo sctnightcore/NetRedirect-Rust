@@ -127,7 +127,7 @@ fn kore_connection_main(keep_running: Arc<Mutex<bool>>) {
         }
         
         // Handle received data
-        if let Some(client) = &mut state.kore_client {
+        if let Some(ref mut client) = state.kore_client {
             if let Ok(n) = client.read(&mut buf) {
                 if n > 0 {
                     process_packet(&buf[..n], &mut state);
@@ -136,22 +136,24 @@ fn kore_connection_main(keep_running: Arc<Mutex<bool>>) {
         }
         
         // Send pending data
-        if !state.xkore_send_buf.is_empty() {
-            if let Some(client) = &mut state.kore_client {
-                // Clone the buffer first
-                let buffer_to_send = state.xkore_send_buf.clone();
-                if client.write_all(&buffer_to_send).is_ok() {
+        let should_send = !state.xkore_send_buf.is_empty();
+        if should_send {
+            if let Some(ref mut client) = state.kore_client {
+                let data_to_send = state.xkore_send_buf.clone();
+                if client.write_all(&data_to_send).is_ok() {
                     state.xkore_send_buf.clear();
                 }
             }
         }
         
         // Send keep-alive
-        if state.kore_alive && last_ping.elapsed() > Duration::from_millis(PING_INTERVAL) {
-            if let Some(client) = &mut state.kore_client {
+        let should_ping = state.kore_alive && last_ping.elapsed() > Duration::from_millis(PING_INTERVAL);
+        if should_ping {
+            if let Some(ref mut client) = state.kore_client {
                 let ping = [b'K', 0, 0];
-                let _ = client.write_all(&ping);
-                last_ping = Instant::now();
+                if client.write_all(&ping).is_ok() {
+                    last_ping = Instant::now();
+                }
             }
         }
         
@@ -196,10 +198,8 @@ pub extern "system" fn DllMain(_hinst: *mut u8, reason: u32, _: *mut u8) -> i32 
                     winapi::um::processthreadsapi::GetCurrentThread()
                 ));
                 
-                detours::DetourAttach(&mut (ORIGINAL_RECV.unwrap() as *mut _), 
-                                    hooked_recv as *mut _);
-                detours::DetourAttach(&mut (ORIGINAL_SEND.unwrap() as *mut _), 
-                                    hooked_send as *mut _);
+                detours::DetourAttach(&mut (ORIGINAL_RECV.unwrap() as *mut _), hooked_recv as *mut _);
+                detours::DetourAttach(&mut (ORIGINAL_SEND.unwrap() as *mut _), hooked_send as *mut _);
                 
                 detours::DetourTransactionCommit();
             }
@@ -221,12 +221,10 @@ pub extern "system" fn DllMain(_hinst: *mut u8, reason: u32, _: *mut u8) -> i32 
                 ));
                 
                 if let Some(orig_recv) = ORIGINAL_RECV {
-                    detours::DetourDetach(&mut (orig_recv as *mut _), 
-                                        hooked_recv as *mut _);
+                    detours::DetourDetach(&mut (orig_recv as *mut _), hooked_recv as *mut _);
                 }
                 if let Some(orig_send) = ORIGINAL_SEND {
-                    detours::DetourDetach(&mut (orig_send as *mut _), 
-                                        hooked_send as *mut _);
+                    detours::DetourDetach(&mut (orig_send as *mut _), hooked_send as *mut _);
                 }
                 
                 detours::DetourTransactionCommit();
